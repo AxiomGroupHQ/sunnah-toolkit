@@ -476,6 +476,10 @@ def test_privacy_page_is_public_and_cacheable(monkeypatch):
     assert r.status_code == 200 and r.headers["cache-control"] == "public, max-age=3600"
     assert "hn.najeeb@gmail.com" in r.text and "Last updated 2026-10-18" in r.text
     assert "adhan.searchthehadith.fyi" in r.text
+    text = " ".join(r.text.split())
+    assert "rate search results, your ratings are stored with your account" in text
+    assert "saves your prayer settings (calculation method, Fajr and Isha angles, and adhan sound)" in text
+    assert "Your location is not stored." in text
 
 
 def test_privacy_is_linked(client):

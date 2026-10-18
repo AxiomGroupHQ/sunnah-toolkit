@@ -278,7 +278,7 @@ PRIVACY_UPDATED = "2026-10-18"
 
 def privacy() -> HTMLResponse:
     """Covers searchthehadith.fyi and adhan.searchthehadith.fyi. Keep it in step with
-    core/querylog.py, core/users.py and my-adhan's assistant/querylog.py."""
+    core/querylog.py, core/users.py, core/feedback.py and my-adhan's assistant/querylog.py."""
     r = _page("Privacy", f"""
       <div class="policy">
       <h1>Privacy</h1>
@@ -291,6 +291,9 @@ def privacy() -> HTMLResponse:
       password itself). Signing in sets a cookie scoped to .searchthehadith.fyi so one sign-in
       covers both sites; it holds a session id and your account id, email and name, and is
       removed when you sign out. Emailed sign-in links are single-use and expire.</p>
+      <p>If you sign in, the adhan clock saves your prayer settings (calculation method, Fajr and
+      Isha angles, and adhan sound) with your account, along with when they were last changed, so
+      they follow you to other devices. Your location is not stored.</p>
 
       <h2>Search queries and adhan questions</h2>
       <p>To improve results we log what is searched on searchthehadith.fyi and the questions
@@ -299,6 +302,9 @@ def privacy() -> HTMLResponse:
       makes up (so searches from one visit can be grouped) and the country Cloudflare reports.
       It does not hold your account, your IP address or your browser details. These logs stay
       on our server.</p>
+      <p>If you are signed in and rate search results, your ratings are stored with your account
+      to help us improve search, together with that search (its text, options and the results it
+      returned) and the search's id, which matches its entry in the search log.</p>
 
       <h2>Server logs</h2>
       <p>Like most web servers, ours keeps access logs of IP addresses and the addresses of
@@ -313,7 +319,8 @@ def privacy() -> HTMLResponse:
         times it uses your browser's location if you allow it, otherwise asks ipapi.co for an
         approximate location, and looks up place names with OpenStreetMap's Nominatim.</li>
         <li>Your browser keeps your settings (for example the adhan calculation method) in its
-        own local storage. They are not sent to us.</li>
+        own local storage. They are not sent to us unless you sign in to the adhan clock, as
+        described above.</li>
       </ul>
       <p>There are no ads and no analytics or tracking scripts, and we do not sell or share
       your data.</p>
