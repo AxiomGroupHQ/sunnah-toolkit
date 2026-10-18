@@ -19,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from ..core import querylog
 from ..core import reranker as _reranker_mod
 from ..mcp.server import mcp
-from . import accounts, accounts_pages, auth, ratelimit
+from . import accounts, accounts_pages, auth, feedback, ratelimit
 from .routes import router
 from .ui import index as _ui_index
 
@@ -186,6 +186,7 @@ def create_app(keys_file: str | Path | None = None) -> FastAPI:
     app.get("/privacy", include_in_schema=False)(accounts_pages.privacy)
 
     app.include_router(accounts.build_router())
+    app.include_router(feedback.build_router())
     app.include_router(router)
     app.mount("/", mcp_app)
 

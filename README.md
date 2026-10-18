@@ -344,7 +344,7 @@ under `/auth/*` (`api/accounts.py`), accounts in SQLite (`core/users.py`).
 | Variable | Meaning |
 |---|---|
 | `AUTH_SECRET` | signs the session cookie; share it with any sibling site that reads the cookie |
-| `USERS_DB_PATH` | SQLite file for users, sessions and emailed tokens |
+| `USERS_DB_PATH` | SQLite file for users, sessions, emailed tokens and result ratings |
 | `AUTH_BASE_URL` | public address of these pages, used in links and OAuth callbacks (default `https://searchthehadith.fyi`) |
 | `AUTH_COOKIE_DOMAIN` | e.g. `.searchthehadith.fyi` to share the session with subdomains; unset for localhost |
 | `AUTH_RETURN_HOSTS` | comma-separated hosts a sign-in may return to |
@@ -355,6 +355,13 @@ under `/auth/*` (`api/accounts.py`), accounts in SQLite (`core/users.py`).
 Without either email setting only the provider buttons are offered, and with
 no provider either, sign-in stays off. `/auth/me` lists the available
 `methods`.
+
+Signed-in users can rate each search result (good match, partly relevant,
+not relevant) and submit the ratings for the whole list (`POST /v1/feedback`,
+`api/feedback.py`). Each rating is stored with the query, its options, the
+server's search settings and the full result list, for analysis only:
+`python scripts/export_feedback.py -o feedback.csv`. Submissions are limited
+to `RATE_LIMIT_FEEDBACK_PER_MIN` per user (default 30).
 
 For local testing: `AUTH_SECRET=dev AUTH_EMAIL_DEV=1 USERS_DB_PATH=/tmp/users.sqlite AUTH_BASE_URL=http://localhost:8000`,
 then open `http://localhost:8000/auth/login` and take links from the server log.

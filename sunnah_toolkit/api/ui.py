@@ -287,6 +287,37 @@ INDEX_HTML = r"""<!doctype html>
     }
     .more-btn:hover { border-color: var(--accent); color: var(--accent); }
 
+    /* Result ratings (signed-in only, api/feedback.py) */
+    .fb { display: flex; justify-content: flex-end; align-items: center; gap: 0.3rem; padding: 0 0.75rem 0.6rem; }
+    .fb-label { color: var(--faint); font-size: 0.78rem; margin-right: 0.15rem; }
+    .fb-saved { color: var(--accent); font-size: 0.75rem; margin-right: 0.2rem; }
+    .fb-btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 2.1rem; height: 1.9rem; padding: 0; cursor: pointer;
+      background: var(--card); border: 1px solid var(--border); border-radius: 8px; color: var(--muted);
+    }
+    .fb-btn svg { width: 16px; height: 16px; }
+    .fb-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .fb-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .fb-btn[data-rating="good"][aria-pressed="true"] { color: var(--g-sahih); background: var(--g-sahih-bg); border-color: var(--g-sahih); }
+    .fb-btn[data-rating="partial"][aria-pressed="true"] { color: var(--g-daif); background: var(--g-daif-bg); border-color: var(--g-daif); }
+    .fb-btn[data-rating="irrelevant"][aria-pressed="true"] { color: var(--g-maudu); background: var(--g-maudu-bg); border-color: var(--g-maudu); }
+    .fb-bar {
+      position: sticky; bottom: 0.75rem; z-index: 5; margin-top: 0.8rem;
+      display: flex; justify-content: space-between; align-items: center; gap: 0.75rem;
+      background: var(--card); border: 1px solid var(--accent); border-radius: 12px;
+      padding: 0.45rem 0.45rem 0.45rem 0.9rem; font-size: 0.9rem;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+    }
+    .fb-bar[hidden] { display: none; }
+    .fb-bar.error #fb-msg { color: var(--error); }
+    #fb-submit {
+      background: var(--accent); color: #fff; border: none; border-radius: 8px;
+      padding: 0.45rem 1rem; font-size: 0.9rem; font-weight: 600; cursor: pointer; flex-shrink: 0;
+    }
+    #fb-submit:hover:not(:disabled) { background: var(--accent-hover); }
+    #fb-submit:disabled { opacity: 0.55; cursor: default; }
+
     /* Grade badges */
     .badge {
       display: inline-block; font-size: 0.72rem; font-weight: 650; letter-spacing: 0.02em;
@@ -358,6 +389,8 @@ INDEX_HTML = r"""<!doctype html>
       .links { margin-left: 0; width: 100%; justify-content: space-between; }
       .row-main { padding: 0.8rem 0.85rem; }
       .row-detail { padding: 0 0.85rem 0.9rem; }
+      .fb { padding: 0 0.6rem 0.55rem; }
+      .fb-label { display: none; }
       .hadith-card { padding: 1rem; }
       .h-meta { flex-direction: column; align-items: flex-start; }
     }
@@ -431,6 +464,7 @@ INDEX_HTML = r"""<!doctype html>
       <div id="results-header"></div>
       <div id="results-rows"></div>
       <div id="page-nav"></div>
+      <div class="fb-bar" id="fb-bar" hidden><span id="fb-msg" aria-live="polite"></span><button type="button" id="fb-submit">Submit</button></div>
     </section>
     <section id="detail"></section>
 
@@ -497,6 +531,16 @@ INDEX_HTML = r"""<!doctype html>
     let currentPage = 1;
     let showScores = false;
     const openRows = new Set();      // "slug|num" keys of expanded rows
+
+    // Result ratings, for signed-in users only (api/feedback.py). Keyed by
+    // "slug:number", the server's ref. Kept across pages and filters until
+    // the next search; savedRatings is what the server has.
+    let signedIn = false;
+    let lastSearch = null;           // the search the ratings are filed under
+    let ratings = new Map();
+    let savedRatings = new Map();
+    let fbSending = false;
+    let fbError = "";
 
     const CANONICAL_ORDER = ["bukhari", "muslim", "abudawud", "tirmidhi", "nasai", "ibnmajah"];
     const NAME_PREFIXES = ["sahih", "sunan", "jami", "musnad", "al", "an", "ar", "as", "at", "az", "ad"];
@@ -647,6 +691,12 @@ INDEX_HTML = r"""<!doctype html>
       chipsExpanded = false;
       openRows.clear();
       currentPage = 1;
+      lastSearch = null;
+      ratings = new Map();
+      savedRatings = new Map();
+      fbSending = false;
+      fbError = "";
+      updateFbBar();
     }
 
     function escapeHtml(s) {
@@ -823,6 +873,40 @@ INDEX_HTML = r"""<!doctype html>
       }
     });
 
+    const FB_RATINGS = ["good", "partial", "irrelevant"];
+    const FB_LABELS = {
+      good: "Good match",
+      partial: "Partly relevant: not the best match, but it works",
+      irrelevant: "Not relevant",
+    };
+    const FB_ICONS = {
+      good: '<path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/>',
+      partial: '<path d="M4 13.5C6 9.5 9 9.5 12 12s6 2.5 8-1.5"/>',
+      irrelevant: '<path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/>',
+    };
+
+    function resultRef(item) {
+      return item.slug + ":" + String(item.hadith_number || item.number).trim();
+    }
+
+    function feedbackInner(ref) {
+      const cur = ratings.get(ref);
+      const saved = !!cur && savedRatings.get(ref) === cur;
+      return (saved ? '<span class="fb-saved">Saved &#10003;</span>' : '<span class="fb-label">Rate this match</span>') +
+        FB_RATINGS.map((r) =>
+          '<button type="button" class="fb-btn" data-rating="' + r + '" aria-pressed="' + (cur === r) + '"' +
+          ' title="' + FB_LABELS[r] + '" aria-label="' + FB_LABELS[r] + '">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+          FB_ICONS[r] + '</svg></button>').join("");
+    }
+
+    function feedbackHtml(item) {
+      if (!signedIn || !lastSearch) return "";
+      const ref = resultRef(item);
+      return '<div class="fb" role="group" aria-label="Rate this result" data-ref="' + escapeHtml(ref) + '">' +
+        feedbackInner(ref) + '</div>';
+    }
+
     function renderResultRow(item, isWeak) {
       const slug = item.slug;
       const num = String(item.hadith_number || item.number);
@@ -843,6 +927,7 @@ INDEX_HTML = r"""<!doctype html>
             (item.chapter ? '<span class="chapter clamp" title="' + escapeHtml(item.chapter) + '">' + escapeHtml(item.chapter) + '</span>' : '') +
             '<span class="snippet">' + highlight(snippet, terms) + '</span>' +
           '</button>' +
+          feedbackHtml(item) +
           '<div class="row-detail"' + (open ? '' : ' hidden') + '></div>' +
         '</article>'
       );
@@ -891,6 +976,16 @@ INDEX_HTML = r"""<!doctype html>
       return total > 0 && selectedCollections.size > 0 && selectedCollections.size < total;
     }
 
+    // What the server said about how it ranked, filed with any ratings.
+    function responseMeta(j) {
+      const m = {};
+      for (const k of ["collection", "mode_hint", "reranker", "reranker_status", "reranker_active", "threshold",
+                       "grade_first", "pool_size", "reranked", "total", "fallback", "variants", "match_logic"]) {
+        if (j[k] !== undefined) m[k] = j[k];
+      }
+      return m;
+    }
+
     function buildSearchUrl(mode, query, collection, limit) {
       const c = collection ? "&collection=" + encodeURIComponent(collection) : "";
       const q = encodeURIComponent(query);
@@ -904,19 +999,19 @@ INDEX_HTML = r"""<!doctype html>
     // Server-side collection filtering: one API call per ticked collection in
     // parallel, then merge in the server's order (grade, then score).
     async function searchAcrossCollections(mode, query, ctx) {
-      if (!isCollectionFilterActive()) {
-        return await call(buildSearchUrl(mode, query, null, ALL_LIMIT), ctx);
+      if (!isCollectionFilterActive() || selectedCollections.size === 1) {
+        const only = isCollectionFilterActive() ? Array.from(selectedCollections)[0] : null;
+        const j = await call(buildSearchUrl(mode, query, only, ALL_LIMIT), ctx);
+        j._meta = [responseMeta(j)];
+        return j;
       }
       const slugs = Array.from(selectedCollections);
-      if (slugs.length === 1) {
-        return await call(buildSearchUrl(mode, query, slugs[0], ALL_LIMIT), ctx);
-      }
       const responses = await Promise.allSettled(
         slugs.map((s) => call(buildSearchUrl(mode, query, s, ALL_LIMIT), ctx))
       );
       const ok = responses.filter((r) => r.status === "fulfilled").map((r) => r.value);
 
-      const merged = { results: [], results_weak: [], matched_words: [] };
+      const merged = { results: [], results_weak: [], matched_words: [], _meta: ok.map(responseMeta) };
       const gradeFirst = ok.some((j) => j.grade_first);
       const wordSum = new Map();
       for (const j of ok) {
@@ -1022,6 +1117,7 @@ INDEX_HTML = r"""<!doctype html>
       }
 
       resultsRowsEl.innerHTML = html;
+      updateFbBar();
       pageNavEl.innerHTML = renderPageNav(totalPages, currentPage);
       attachRowHandlers();
       attachPageNavHandlers();
@@ -1103,6 +1199,95 @@ INDEX_HTML = r"""<!doctype html>
         });
       });
     }
+
+    // ---- Result ratings ----------------------------------------------------
+    resultsRowsEl.addEventListener("click", (e) => {
+      const btn = e.target.closest(".fb-btn");
+      if (!btn) return;
+      const fb = btn.closest(".fb");
+      const ref = fb.dataset.ref, r = btn.dataset.rating;
+      if (ratings.get(ref) === r) ratings.delete(ref); else ratings.set(ref, r);
+      fbError = "";
+      fb.innerHTML = feedbackInner(ref);
+      fb.querySelector('.fb-btn[data-rating="' + r + '"]').focus();
+      updateFbBar();
+    });
+
+    function fbChanges() {
+      const out = [];
+      for (const ref of new Set([...ratings.keys(), ...savedRatings.keys()])) {
+        if (ratings.get(ref) !== savedRatings.get(ref)) out.push({ ref, rating: ratings.get(ref) || null });
+      }
+      return out;
+    }
+
+    function updateFbBar() {
+      const bar = $("fb-bar");
+      const show = signedIn && !!lastSearch && (ratings.size > 0 || savedRatings.size > 0);
+      bar.hidden = !show;
+      if (!show) return;
+      const changed = fbChanges().length;
+      const n = ratings.size;
+      let msg;
+      if (fbError) msg = fbError;
+      else if (fbSending) msg = "Saving…";
+      else if (!changed) msg = n + (n === 1 ? " rating" : " ratings") + " saved. Thank you!";
+      else msg = n + " rated" + (savedRatings.size ? ", " + changed + " unsaved change" + (changed === 1 ? "" : "s") : "");
+      bar.classList.toggle("error", !!fbError);
+      $("fb-msg").textContent = msg;
+      const btn = $("fb-submit");
+      btn.textContent = (changed || fbSending) ? (savedRatings.size ? "Update" : "Submit") : "Saved";
+      btn.disabled = fbSending || !changed;
+    }
+
+    function resultPayload(it, bucket) {
+      return {
+        collection: it.slug, hadith_number: it.hadith_number, number: it.number, bucket,
+        score: typeof it.score === "number" ? it.score : null,
+        similarity: typeof it.similarity === "number" ? it.similarity : null,
+      };
+    }
+
+    // Sends the whole result list each time; the server keeps the first copy
+    // and only takes ratings for hadiths in it.
+    async function submitFeedback() {
+      const search = lastSearch;
+      const changes = fbChanges();
+      if (!search || fbSending || !changes.length) return;
+      fbSending = true;
+      fbError = "";
+      updateFbBar();
+      try {
+        const r = await fetch("/v1/feedback", {
+          method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(Object.assign({}, search, {
+            filters: {
+              result_collections: Array.from(selectedResultCollections),
+              words: Array.from(selectedWords),
+              weak_visible: weakVisible,
+              page: currentPage,
+            },
+            results: lastResults.map((it) => resultPayload(it, "strong"))
+              .concat(lastResultsWeak.map((it) => resultPayload(it, "weak"))),
+            ratings: changes,
+          })),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (search !== lastSearch) return;      // a new search started meanwhile
+        if (r.ok) savedRatings = new Map(Object.entries(j.ratings || {}));
+        else if (r.status === 401) fbError = "Your session has ended. Sign in again to save ratings.";
+        else fbError = "Could not save: " + (typeof j.detail === "string" ? j.detail : "HTTP " + r.status);
+      } catch (e) {
+        if (search === lastSearch) fbError = "Could not save: " + e.message;
+      } finally {
+        if (search === lastSearch) {
+          fbSending = false;
+          resultsRowsEl.querySelectorAll(".fb").forEach((el) => { el.innerHTML = feedbackInner(el.dataset.ref); });
+          updateFbBar();
+        }
+      }
+    }
+    $("fb-submit").addEventListener("click", submitFeedback);
 
     // Anonymous ids for the query log: one per browser tab, one per search.
     // No IP or user agent is stored server-side.
@@ -1212,6 +1397,15 @@ INDEX_HTML = r"""<!doctype html>
         selectedWords = new Set(lastMatchedWords.slice(0, 8).map((w) => w.word));
         selectedResultCollections = new Set(items.concat(weakItems).map((r) => r.slug));
         currentPage = 1;
+        lastSearch = {
+          search_id: ctx["X-Search-Id"],
+          query: q,
+          ui_mode: mode,
+          mode: resolved,
+          collections: isCollectionFilterActive() ? Array.from(selectedCollections) : null,
+          limit: ALL_LIMIT,
+          response: j._meta || [],
+        };
         renderResultsView();
       } catch (e) {
         if (seq === searchSeq) setStatus("Search failed: " + e.message, true);
@@ -1329,6 +1523,8 @@ INDEX_HTML = r"""<!doctype html>
         });
       } else {
         const u = me.user;
+        signedIn = true;
+        if (lastSearch) renderResultsView();
         el.innerHTML =
           '<details><summary class="link-btn">' + escapeHtml(u.name || u.email) + ' <span class="chev">&#9662;</span></summary>' +
           '<div class="account-menu">' +
