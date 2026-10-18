@@ -26,6 +26,10 @@ dependencies = [
     # the dependency is missing OR when ANTHROPIC_API_KEY is unset, so this
     # is a runtime-soft dep rather than a hard import requirement.
     "anthropic>=0.40",
+    # Optional sign-in (api/accounts.py): argon2id password hashes, and the
+    # form posts of its pages. Both ship Intel macOS wheels.
+    "argon2-cffi>=23.1",
+    "python-multipart>=0.0.9",
 ]
 
 [project.optional-dependencies]

@@ -19,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from ..core import querylog
 from ..core import reranker as _reranker_mod
 from ..mcp.server import mcp
-from . import auth, ratelimit
+from . import accounts, auth, ratelimit
 from .routes import router
 from .ui import index as _ui_index
 
@@ -172,9 +172,19 @@ def create_app(keys_file: str | Path | None = None) -> FastAPI:
             "reranker_status": _warm_state["reranker_status"],
         }
 
+    # Optional sign-in pages and /auth/me (api/accounts.py). Nothing under
+    # /auth may be cached: responses carry cookies or say who is signed in.
+    @app.middleware("http")
+    async def _no_store_auth(request: Request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith("/auth/"):
+            response.headers["Cache-Control"] = "no-store"
+        return response
+
     # Demo UI at /. Must be registered before the catch-all MCP mount below.
     app.get("/", include_in_schema=False)(_ui_index)
 
+    app.include_router(accounts.build_router())
     app.include_router(router)
     app.mount("/", mcp_app)
 
