@@ -122,6 +122,18 @@ def same_origin(request: Request, cfg: Config) -> bool:
     return origin.lower() in cfg.origins
 
 
+def current_session(request: Request, cfg: Config) -> tuple[dict, str, int] | None:
+    """(user, session id, session expiry) for the signed-in visitor."""
+    raw = request.cookies.get(cfg.cookie_name)
+    payload = session_cookie.verify(raw, cfg.secret) if raw else None
+    if not payload or not isinstance(payload.get("sid"), str):
+        return None
+    found = users.session_user(payload["sid"])
+    if found is None or found[0]["id"] != payload.get("uid"):
+        return None
+    return found[0], payload["sid"], found[1]
+
+
 def _env_int(name: str, default: int) -> int:
     raw = os.environ.get(name, "").strip()
     return int(raw) if raw.isdigit() and int(raw) > 0 else default
@@ -180,15 +192,7 @@ def build_router() -> APIRouter:
         return f"{cfg.base_url}/auth/{path}?token={quote(token)}"
 
     def current(request: Request) -> tuple[dict, str, int] | None:
-        """(user, session id, session expiry) for the signed-in visitor."""
-        raw = request.cookies.get(cfg.cookie_name)
-        payload = session_cookie.verify(raw, cfg.secret) if raw else None
-        if not payload or not isinstance(payload.get("sid"), str):
-            return None
-        found = users.session_user(payload["sid"])
-        if found is None or found[0]["id"] != payload.get("uid"):
-            return None
-        return found[0], payload["sid"], found[1]
+        return current_session(request, cfg)
 
     def set_session_cookie(resp: Response, user: dict, sid: str, exp: int) -> None:
         value = session_cookie.sign(
