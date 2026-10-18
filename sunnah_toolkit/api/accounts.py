@@ -1,8 +1,14 @@
 """Optional sign-in, shared with adhan.searchthehadith.fyi. Mounted at /auth.
 
 Off unless AUTH_SECRET and USERS_DB_PATH are set (deploy/macos/run-api.sh
-sets both); then /auth/me just says {"enabled": false} and the search page
-shows no Sign in button. Searching never needs an account.
+sets both) and at least one way in is: a Google or GitHub client, or email.
+Otherwise /auth/me just says {"enabled": false} and the search page shows no
+Sign in button. Searching never needs an account.
+
+The email methods (password, sign-up, magic link, reset) need working mail:
+RESEND_API_KEY, or AUTH_EMAIL_DEV=1 to print the emails to the log for local
+testing. Without either, only the provider buttons are offered and the email
+routes answer 404, so nobody waits for a message that went to a log file.
 
 Sessions live server-side (core/users.py) so sign-out, sign-out-everywhere
 and a password reset end them at once. The cookie holds the session id plus
@@ -28,7 +34,7 @@ import secrets
 from dataclasses import dataclass, field
 from urllib.parse import quote, urlsplit
 
-from fastapi import APIRouter, BackgroundTasks, Form, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from ..core import mailer as mailer_mod
@@ -51,15 +57,21 @@ class Config:
     session_ttl: int
     return_hosts: set[str]          # hosts (with port if any) a sign-in may send the user back to
     origins: set[str] = field(default_factory=set)
+    email: bool = False             # password / magic link / reset offered
 
     @property
     def secure(self) -> bool:
         return self.base_url.startswith("https://")
 
 
+def email_enabled() -> bool:
+    return bool(os.environ.get("RESEND_API_KEY", "").strip()) or \
+        os.environ.get("AUTH_EMAIL_DEV", "").strip().lower() in ("1", "true", "yes")
+
+
 def config_from_env() -> Config | None:
     secret = os.environ.get("AUTH_SECRET", "").strip()
-    if not secret or not users.db_path():
+    if not secret or not users.db_path() or not (email_enabled() or oauth.configured()):
         return None
     base = (os.environ.get("AUTH_BASE_URL", "").strip() or "https://searchthehadith.fyi").rstrip("/")
     hosts_raw = os.environ.get("AUTH_RETURN_HOSTS", "").strip() or "searchthehadith.fyi,adhan.searchthehadith.fyi"
@@ -74,6 +86,7 @@ def config_from_env() -> Config | None:
         session_ttl=(int(days) if days.isdigit() and int(days) > 0 else 30) * 86400,
         return_hosts=hosts,
         origins={f"{scheme}://{h}" for h in hosts},
+        email=email_enabled(),
     )
 
 
@@ -125,6 +138,12 @@ def build_router() -> APIRouter:
         return router
 
     mail = mailer_mod.from_env()
+
+    def need_email() -> None:
+        if not cfg.email:
+            raise HTTPException(status_code=404, detail="Email sign-in is not available.")
+
+    email_only = [Depends(need_email)]
     by_ip = ratelimit.SlidingWindow(_env_int("RATE_LIMIT_AUTH_PER_MIN", 20), window=60)
     by_email = ratelimit.SlidingWindow(_env_int("RATE_LIMIT_AUTH_EMAIL_PER_HOUR", 10), window=3600)
 
@@ -202,18 +221,21 @@ def build_router() -> APIRouter:
 
     providers = lambda: [(n, oauth.PROVIDERS[n]["label"]) for n in oauth.configured()]  # noqa: E731
 
+    def methods() -> list[str]:
+        return oauth.configured() + (["email"] if cfg.email else [])
+
     # ── who is signed in ─────────────────────────────────────────────────────
 
     @router.get("/me")
     def me(request: Request) -> JSONResponse:
         found = current(request)
         if found is None:
-            resp = JSONResponse({"enabled": True, "user": None})
+            resp = JSONResponse({"enabled": True, "methods": methods(), "user": None})
             if request.cookies.get(cfg.cookie_name):
                 clear_session_cookie(resp)
         else:
             user, sid, exp = found
-            resp = JSONResponse({"enabled": True, "user": {
+            resp = JSONResponse({"enabled": True, "methods": methods(), "user": {
                 "id": user["id"], "email": user["email"], "name": user.get("name")}})
             # Sliding expiry: anyone who comes back within the second half of
             # their session gets a fresh full term.
@@ -229,7 +251,7 @@ def build_router() -> APIRouter:
         if found is None:
             return RedirectResponse(f"/auth/login?return_to={quote(safe_return(return_to, cfg), safe='')}",
                                     status_code=303)
-        return pages.account(found[0], safe_return(return_to, cfg))
+        return pages.account(found[0], safe_return(return_to, cfg), email=cfg.email)
 
     # ── email + password ─────────────────────────────────────────────────────
 
@@ -237,9 +259,9 @@ def build_router() -> APIRouter:
     def login_form(request: Request, return_to: str | None = None) -> Response:
         if current(request) is not None:
             return RedirectResponse(safe_return(return_to, cfg), status_code=303)
-        return pages.login(providers(), safe_return(return_to, cfg))
+        return pages.login(providers(), cfg.email, safe_return(return_to, cfg))
 
-    @router.post("/login")
+    @router.post("/login", dependencies=email_only)
     def login(request: Request, email: str = Form(""), password: str = Form(""),
               return_to: str = Form("")) -> Response:
         if not same_origin(request, cfg):
@@ -248,15 +270,15 @@ def build_router() -> APIRouter:
             return too_many(wait)
         user = users.user_by_email(email)
         if not users.check_password(user, password[:PASSWORD_MAX]):
-            return pages.login(providers(), safe_return(return_to, cfg), email=email,
+            return pages.login(providers(), cfg.email, safe_return(return_to, cfg), email=email,
                                error="Wrong email or password.", status=400)
         return sign_in(user, return_to)
 
-    @router.get("/signup")
+    @router.get("/signup", dependencies=email_only)
     def signup_form(return_to: str | None = None) -> Response:
         return pages.signup(providers(), safe_return(return_to, cfg))
 
-    @router.post("/signup")
+    @router.post("/signup", dependencies=email_only)
     def signup(request: Request, background: BackgroundTasks, email: str = Form(""),
                password: str = Form(""), name: str = Form(""), return_to: str = Form("")) -> Response:
         if not same_origin(request, cfg):
@@ -282,7 +304,7 @@ def build_router() -> APIRouter:
         return pages.message("Check your email", f"We sent a link to {email}. Open it to finish signing up. "
                              "It works for 24 hours.")
 
-    @router.get("/verify")
+    @router.get("/verify", dependencies=email_only)
     def verify_form(token: str = "") -> Response:
         row = users.peek_token("verify", token)
         if row is None:
@@ -291,7 +313,7 @@ def build_router() -> APIRouter:
         return pages.confirm("Confirm your email", f"Finish signing up as {row['email']}.",
                              "/auth/verify", token, "Confirm and sign in")
 
-    @router.post("/verify")
+    @router.post("/verify", dependencies=email_only)
     def verify(request: Request, token: str = Form("")) -> Response:
         if not same_origin(request, cfg):
             return forbidden()
@@ -306,7 +328,7 @@ def build_router() -> APIRouter:
 
     # ── magic link ───────────────────────────────────────────────────────────
 
-    @router.post("/magic-link")
+    @router.post("/magic-link", dependencies=email_only)
     def magic_link(request: Request, background: BackgroundTasks, email: str = Form(""),
                    return_to: str = Form("")) -> Response:
         if not same_origin(request, cfg):
@@ -315,7 +337,7 @@ def build_router() -> APIRouter:
             return too_many(wait)
         email = users.normalize_email(email)
         if not valid_email(email):
-            return pages.login(providers(), safe_return(return_to, cfg), email=email,
+            return pages.login(providers(), cfg.email, safe_return(return_to, cfg), email=email,
                                error="Enter a valid email address.", status=400)
         # Sent whether or not there is an account: following it creates one.
         token = users.issue_token("magic", email, return_to=safe_return(return_to, cfg))
@@ -323,7 +345,7 @@ def build_router() -> APIRouter:
         return pages.message("Check your email", f"We sent a sign-in link to {email}. It works once, "
                              "for the next 15 minutes.")
 
-    @router.get("/magic")
+    @router.get("/magic", dependencies=email_only)
     def magic_form(token: str = "") -> Response:
         row = users.peek_token("magic", token)
         if row is None:
@@ -331,7 +353,7 @@ def build_router() -> APIRouter:
                                  "Ask for a new one.", status=400)
         return pages.confirm("Sign in", f"Continue as {row['email']}.", "/auth/magic", token, "Sign in")
 
-    @router.post("/magic")
+    @router.post("/magic", dependencies=email_only)
     def magic(request: Request, token: str = Form("")) -> Response:
         if not same_origin(request, cfg):
             return forbidden()
@@ -344,11 +366,11 @@ def build_router() -> APIRouter:
 
     # ── password reset ───────────────────────────────────────────────────────
 
-    @router.get("/forgot")
+    @router.get("/forgot", dependencies=email_only)
     def forgot_form(return_to: str | None = None) -> Response:
         return pages.forgot(safe_return(return_to, cfg))
 
-    @router.post("/forgot")
+    @router.post("/forgot", dependencies=email_only)
     def forgot(request: Request, background: BackgroundTasks, email: str = Form(""),
                return_to: str = Form("")) -> Response:
         if not same_origin(request, cfg):
@@ -362,14 +384,14 @@ def build_router() -> APIRouter:
         return pages.message("Check your email", f"If {email} has an account, we sent it a link to set "
                              "a new password. It works for 30 minutes.")
 
-    @router.get("/reset")
+    @router.get("/reset", dependencies=email_only)
     def reset_form(token: str = "") -> Response:
         if users.peek_token("reset", token) is None:
             return pages.message("Link expired", "That reset link has expired or was already used. "
                                  "Ask for a new one.", status=400)
         return pages.reset(token)
 
-    @router.post("/reset")
+    @router.post("/reset", dependencies=email_only)
     def reset(request: Request, token: str = Form(""), password: str = Form("")) -> Response:
         if not same_origin(request, cfg):
             return forbidden()
@@ -414,7 +436,7 @@ def build_router() -> APIRouter:
         return_to = saved.get("r") if saved else None
 
         def fail(msg: str, status: int = 400) -> Response:
-            r = pages.login(providers(), safe_return(return_to, cfg), error=msg, status=status)
+            r = pages.login(providers(), cfg.email, safe_return(return_to, cfg), error=msg, status=status)
             r.delete_cookie(OAUTH_COOKIE, path="/auth/oauth")
             return r
 

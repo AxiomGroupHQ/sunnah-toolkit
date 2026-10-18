@@ -349,9 +349,14 @@ under `/auth/*` (`api/accounts.py`), accounts in SQLite (`core/users.py`).
 | `AUTH_COOKIE_DOMAIN` | e.g. `.searchthehadith.fyi` to share the session with subdomains; unset for localhost |
 | `AUTH_RETURN_HOSTS` | comma-separated hosts a sign-in may return to |
 | `GOOGLE_CLIENT_ID` / `_SECRET`, `GITHUB_CLIENT_ID` / `_SECRET` | enable each provider |
-| `RESEND_API_KEY`, `AUTH_EMAIL_FROM` | send email through Resend; without a key, emails (with their links) go to the log |
+| `RESEND_API_KEY`, `AUTH_EMAIL_FROM` | send email through Resend; turns on password, sign-up, magic link and reset |
+| `AUTH_EMAIL_DEV=1` | turn the email methods on without Resend, printing emails (with their links) to the log; local use only |
 
-For local testing: `AUTH_SECRET=dev USERS_DB_PATH=/tmp/users.sqlite AUTH_BASE_URL=http://localhost:8000`,
+Without either email setting only the provider buttons are offered, and with
+no provider either, sign-in stays off. `/auth/me` lists the available
+`methods`.
+
+For local testing: `AUTH_SECRET=dev AUTH_EMAIL_DEV=1 USERS_DB_PATH=/tmp/users.sqlite AUTH_BASE_URL=http://localhost:8000`,
 then open `http://localhost:8000/auth/login` and take links from the server log.
 
 ## Self-hosting

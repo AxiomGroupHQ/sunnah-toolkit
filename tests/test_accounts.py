@@ -36,8 +36,9 @@ class Outbox:
 def env(tmp_path, monkeypatch):
     for k in ("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET",
               "RATE_LIMIT_AUTH_PER_MIN", "RATE_LIMIT_AUTH_EMAIL_PER_HOUR", "RATE_LIMIT_PER_MIN",
-              "AUTH_RETURN_HOSTS", "AUTH_COOKIE_NAME"):
+              "AUTH_RETURN_HOSTS", "AUTH_COOKIE_NAME", "RESEND_API_KEY"):
         monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("AUTH_EMAIL_DEV", "1")
     monkeypatch.setenv("USERS_DB_PATH", str(tmp_path / "accounts" / "users.sqlite"))
     monkeypatch.setenv("AUTH_SECRET", SECRET)
     monkeypatch.setenv("AUTH_BASE_URL", SITE)
@@ -326,6 +327,60 @@ def test_github_uses_verified_primary_email(env, monkeypatch):
 def test_unconfigured_provider_is_not_offered(client):
     assert "Continue with" not in client.get("/auth/login").text
     assert client.get("/auth/oauth/google").status_code == 404
+
+
+# ── Google-only (no mail configured) ───────────────────────────────────────────
+
+EMAIL_ROUTES = [("post", "/auth/login"), ("get", "/auth/signup"), ("post", "/auth/signup"),
+                ("get", "/auth/verify"), ("post", "/auth/verify"), ("post", "/auth/magic-link"),
+                ("get", "/auth/magic"), ("post", "/auth/magic"), ("get", "/auth/forgot"),
+                ("post", "/auth/forgot"), ("get", "/auth/reset"), ("post", "/auth/reset")]
+
+
+@pytest.fixture
+def google_only(google, monkeypatch):
+    monkeypatch.delenv("AUTH_EMAIL_DEV")
+    return google
+
+
+def test_google_only_login_page_has_no_email_forms(google_only, env):
+    c = new_client()
+    assert c.get("/auth/me").json() == {"enabled": True, "methods": ["google"], "user": None}
+    page = c.get("/auth/login").text
+    assert "Continue with Google" in page and "GitHub" not in page
+    for absent in ('type="password"', 'type="email"', "/auth/signup", "/auth/forgot", "/auth/magic-link", ">or<"):
+        assert absent not in page, absent
+
+
+def test_google_only_email_routes_are_gone(google_only, env):
+    c = new_client()
+    for method, path in EMAIL_ROUTES:
+        r = getattr(c, method)(path, **({"data": {"email": "a@example.com", "password": "correct horse",
+                                                  "token": "t"}, "headers": {"origin": SITE}}
+                                        if method == "post" else {}))
+        assert r.status_code == 404, (method, path)
+    assert env.sent == []
+
+
+def test_google_only_sign_in_still_works(google_only, env):
+    c = new_client()
+    r, _ = oauth_round_trip(c, "google", ADHAN + "/")
+    assert r.status_code == 303 and r.headers["location"] == ADHAN + "/"
+    assert me(c)["email"] == "amina@example.com"
+    account = c.get("/auth/account").text
+    assert "amina@example.com" in account and "/auth/forgot" not in account
+    assert post(c, "/auth/logout", {}).status_code == 303 and me(c) is None
+
+
+def test_resend_key_turns_email_on(google, env, monkeypatch):
+    monkeypatch.delenv("AUTH_EMAIL_DEV")
+    monkeypatch.setenv("RESEND_API_KEY", "re_test")
+    assert new_client().get("/auth/me").json()["methods"] == ["google", "email"]
+
+
+def test_off_with_no_way_to_sign_in(env, monkeypatch):
+    monkeypatch.delenv("AUTH_EMAIL_DEV")
+    assert new_client().get("/auth/me").json() == {"enabled": False, "user": None}
 
 
 # ── sign out ───────────────────────────────────────────────────────────────────

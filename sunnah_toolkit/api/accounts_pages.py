@@ -113,22 +113,25 @@ def _q(return_to: str) -> str:
     return "?return_to=" + quote(return_to, safe="")
 
 
-def _provider_buttons(providers: list[tuple[str, str]], return_to: str) -> str:
+def _provider_buttons(providers: list[tuple[str, str]], return_to: str, divider: bool = True) -> str:
     if not providers:
         return ""
     buttons = "".join(
         f'<a class="btn alt" href="/auth/oauth/{name}{_q(return_to)}">Continue with {escape(label)}</a>'
         for name, label in providers)
-    return buttons + '<div class="or">or</div>'
+    return buttons + ('<div class="or">or</div>' if divider else "")
 
 
-def login(providers: list[tuple[str, str]], return_to: str, *, email: str = "",
+def login(providers: list[tuple[str, str]], email_on: bool, return_to: str, *, email: str = "",
           error: str | None = None, status: int = 200) -> HTMLResponse:
-    return _page("Sign in", f"""
+    head = f"""
       <h1>Sign in</h1>
       <p class="lead">One account for hadith search and the adhan clock.</p>
       {_error(error)}
-      {_provider_buttons(providers, return_to)}
+      {_provider_buttons(providers, return_to, divider=email_on)}"""
+    if not email_on:
+        return _page("Sign in", head, status)
+    return _page("Sign in", head + f"""
       <form method="post" action="/auth/login">
         {_hidden("return_to", return_to)}
         <label for="email">Email</label>
@@ -217,8 +220,10 @@ def message(title: str, text: str, *, status: int = 200) -> HTMLResponse:
 """, status)
 
 
-def account(user: dict, return_to: str) -> HTMLResponse:
+def account(user: dict, return_to: str, *, email: bool = True) -> HTMLResponse:
     name = f'<div class="row"><span>Name</span><span>{escape(user["name"])}</span></div>' if user.get("name") else ""
+    password_link = (f'      <p class="small"><a href="/auth/forgot{_q(return_to)}">Set or change password</a></p>'
+                     if email else "")
     return _page("Your account", f"""
       <h1>Your account</h1>
       {name}
@@ -232,7 +237,7 @@ def account(user: dict, return_to: str) -> HTMLResponse:
         {_hidden("return_to", return_to)}{_hidden("everywhere", "1")}
         <button class="btn alt" type="submit">Sign out on all devices</button>
       </form>
-      <p class="small"><a href="/auth/forgot{_q(return_to)}">Set or change password</a></p>
+{password_link}
 """)
 
 
