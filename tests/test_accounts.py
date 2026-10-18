@@ -397,3 +397,17 @@ def test_login_never_redirects_off_site(client, env):
     r = post(c, "/auth/login", {"email": "amina@example.com", "password": "correct horse",
                                 "return_to": "https://evil.example/steal"})
     assert r.status_code == 303 and r.headers["location"] == SITE + "/"
+
+
+# ── cookie format shared with my-adhan ─────────────────────────────────────────
+
+# my-adhan's tests/test_shared_login.py checks it can read this exact value.
+SHARED_VECTOR = ("v1.eyJlbWFpbCI6ImFtaW5hQGV4YW1wbGUuY29tIiwiZXhwIjo0MTAyNDQ0ODAwLCJuYW1lIjoiQW1pbmEiLCJzaWQiOiJz"
+                 "MSIsInVpZCI6N30.kNCaLIkia46iFR05Q15a4vrDffaps61vbStXoGwCl8I")
+
+
+def test_cookie_format_is_stable():
+    payload = {"sid": "s1", "uid": 7, "email": "amina@example.com", "name": "Amina", "exp": 4102444800}
+    assert session_cookie.sign(payload, "shared-test-secret") == SHARED_VECTOR
+    assert session_cookie.verify(SHARED_VECTOR, "shared-test-secret") == payload
+    assert session_cookie.verify(SHARED_VECTOR, "shared-test-secret", purpose="oauth") is None
