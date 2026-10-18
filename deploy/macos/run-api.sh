@@ -30,6 +30,15 @@ export QUERY_LOG_PATH="${QUERY_LOG_PATH:-$PWD/data/logs/queries.sqlite}"
 # ticked is one call per collection, hence the headroom.
 export RATE_LIMIT_SEARCH_PER_MIN="${RATE_LIMIT_SEARCH_PER_MIN:-60}"
 export RATE_LIMIT_PER_MIN="${RATE_LIMIT_PER_MIN:-600}"
+# Optional sign-in (api/accounts.py), off unless AUTH_SECRET is set. Secrets
+# (AUTH_SECRET, RESEND_API_KEY, GOOGLE_/GITHUB_CLIENT_ID and _CLIENT_SECRET)
+# go in the env file above. AUTH_SECRET must match the adhan app's, which
+# reads the same cookie. The users DB, like the query log, survives redeploys.
+export USERS_DB_PATH="${USERS_DB_PATH:-$PWD/data/accounts/users.sqlite}"
+export AUTH_BASE_URL="${AUTH_BASE_URL:-https://searchthehadith.fyi}"
+export AUTH_COOKIE_DOMAIN="${AUTH_COOKIE_DOMAIN:-.searchthehadith.fyi}"
+export AUTH_RETURN_HOSTS="${AUTH_RETURN_HOSTS:-searchthehadith.fyi,adhan.searchthehadith.fyi}"
+export AUTH_EMAIL_FROM="${AUTH_EMAIL_FROM:-Sunnah Semantic Search <login@searchthehadith.fyi>}"
 PORT="${PORT:-8000}"
 
 # The library and bi-encoder load lazily on the first query (~45 s here).

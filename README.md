@@ -334,6 +334,26 @@ through as anonymous and still succeed. `/mcp` is unauthenticated by design —
 the keyed tier exists for identification, and rate-limiting / abuse control
 live at the edge (e.g. Cloudflare in front of the public instance).
 
+### Accounts (optional sign-in)
+
+Separate from the bearer tokens above: people can sign in on the web UI with
+Google, GitHub, email + password, or an emailed link. Searching never needs
+it. It is off unless `AUTH_SECRET` and `USERS_DB_PATH` are set; pages live
+under `/auth/*` (`api/accounts.py`), accounts in SQLite (`core/users.py`).
+
+| Variable | Meaning |
+|---|---|
+| `AUTH_SECRET` | signs the session cookie; share it with any sibling site that reads the cookie |
+| `USERS_DB_PATH` | SQLite file for users, sessions and emailed tokens |
+| `AUTH_BASE_URL` | public address of these pages, used in links and OAuth callbacks (default `https://searchthehadith.fyi`) |
+| `AUTH_COOKIE_DOMAIN` | e.g. `.searchthehadith.fyi` to share the session with subdomains; unset for localhost |
+| `AUTH_RETURN_HOSTS` | comma-separated hosts a sign-in may return to |
+| `GOOGLE_CLIENT_ID` / `_SECRET`, `GITHUB_CLIENT_ID` / `_SECRET` | enable each provider |
+| `RESEND_API_KEY`, `AUTH_EMAIL_FROM` | send email through Resend; without a key, emails (with their links) go to the log |
+
+For local testing: `AUTH_SECRET=dev USERS_DB_PATH=/tmp/users.sqlite AUTH_BASE_URL=http://localhost:8000`,
+then open `http://localhost:8000/auth/login` and take links from the server log.
+
 ## Self-hosting
 
 Any Linux, Unix, or macOS host with Docker can run the container. Put a
@@ -363,7 +383,8 @@ sunnah_toolkit/
   core/        protocol-agnostic library: tools, data loading, BM25,
                embeddings, Arabic transliteration, text formatters
   mcp/         FastMCP wrappers exporting the 7 tools over stdio + HTTP
-  api/         FastAPI app: /v1/* routes, /healthz, bearer-token auth
+  api/         FastAPI app: /v1/* routes, /healthz, bearer-token auth,
+               optional sign-in under /auth
   cli.py       argparse entrypoint: --transport {stdio,http}, --host,
                --port, --keys-file
 scripts/
