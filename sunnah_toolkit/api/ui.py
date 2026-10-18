@@ -101,6 +101,28 @@ INDEX_HTML = r"""<!doctype html>
     body.has-results .brand svg { width: 28px; height: 28px; }
     body.has-results .sub { display: none; }
     header { margin-bottom: 1.4rem; }
+    .topline { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; }
+
+    /* Account (optional sign-in, api/accounts.py) */
+    .account { position: relative; flex-shrink: 0; font-size: 0.88rem; }
+    .account[hidden] { display: none; }
+    .account summary { list-style: none; max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .account summary::-webkit-details-marker { display: none; }
+    .account a.link-btn { text-decoration: none; }
+    .account-menu {
+      position: absolute; right: 0; top: calc(100% + 0.35rem); z-index: 10; min-width: 13rem;
+      background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.08); padding: 0.35rem;
+    }
+    .account-menu .who { padding: 0.4rem 0.55rem 0.5rem; color: var(--muted); font-size: 0.82rem;
+      border-bottom: 1px solid var(--border); margin-bottom: 0.25rem; overflow-wrap: anywhere; }
+    .account-menu .who strong { display: block; color: var(--text); font-size: 0.88rem; }
+    .account-menu a, .account-menu button {
+      display: block; width: 100%; text-align: left; background: none; border: none; color: var(--text);
+      font-size: 0.88rem; padding: 0.4rem 0.55rem; border-radius: 6px; cursor: pointer; text-decoration: none;
+    }
+    .account-menu a:hover, .account-menu button:hover { background: var(--soft); color: var(--accent); }
+    .account-menu form { margin: 0; }
     body.has-results header { margin-bottom: 1rem; }
 
     /* Search bar */
@@ -344,10 +366,13 @@ INDEX_HTML = r"""<!doctype html>
 <body>
   <main>
     <header>
-      <a class="brand" href="/" id="home-link">
-        <svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#0f7058"/><path d="M14 20c7-3 13-2 18 2 5-4 11-5 18-2v26c-7-3-13-2-18 2-5-4-11-5-18-2z" fill="none" stroke="#fff" stroke-width="3.5" stroke-linejoin="round"/><path d="M32 22v26" stroke="#fff" stroke-width="3.5"/></svg>
-        <h1>Sunnah Semantic Search</h1>
-      </a>
+      <div class="topline">
+        <a class="brand" href="/" id="home-link">
+          <svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#0f7058"/><path d="M14 20c7-3 13-2 18 2 5-4 11-5 18-2v26c-7-3-13-2-18 2-5-4-11-5-18-2z" fill="none" stroke="#fff" stroke-width="3.5" stroke-linejoin="round"/><path d="M32 22v26" stroke="#fff" stroke-width="3.5"/></svg>
+          <h1>Sunnah Semantic Search</h1>
+        </a>
+        <div class="account" id="account" hidden></div>
+      </div>
       <p class="sub">Search 44,896 hadiths across 15 classical collections by meaning. Ask a question in plain English, type an Arabic word, or look up a reference like <em>Bukhari 1</em>.</p>
     </header>
 
@@ -1286,9 +1311,46 @@ INDEX_HTML = r"""<!doctype html>
       }
     });
 
+    // Optional sign-in. Hidden entirely when the server has it turned off.
+    async function loadAccount() {
+      const el = $("account");
+      let me;
+      try {
+        const r = await fetch("/auth/me", { credentials: "same-origin" });
+        if (!r.ok) return;
+        me = await r.json();
+      } catch (_) { return; }
+      if (!me.enabled) return;
+      if (!me.user) {
+        el.innerHTML = '<a class="link-btn" id="sign-in" href="/auth/login">Sign in</a>';
+        $("sign-in").addEventListener("click", (e) => {
+          e.preventDefault();
+          location.href = "/auth/login?return_to=" + encodeURIComponent(location.href);
+        });
+      } else {
+        const u = me.user;
+        el.innerHTML =
+          '<details><summary class="link-btn">' + escapeHtml(u.name || u.email) + ' <span class="chev">&#9662;</span></summary>' +
+          '<div class="account-menu">' +
+            '<div class="who">Signed in as' + (u.name ? '<strong>' + escapeHtml(u.name) + '</strong>' : '') + escapeHtml(u.email) + '</div>' +
+            '<a href="/auth/account" id="account-link">Account</a>' +
+            '<form method="post" action="/auth/logout" id="sign-out"><input type="hidden" name="return_to"><button type="submit">Sign out</button></form>' +
+          '</div></details>';
+        $("sign-out").addEventListener("submit", (e) => { e.target.return_to.value = location.href; });
+        $("account-link").addEventListener("click", (e) => {
+          e.preventDefault();
+          location.href = "/auth/account?return_to=" + encodeURIComponent(location.href);
+        });
+        const details = el.querySelector("details");
+        document.addEventListener("click", (e) => { if (!details.contains(e.target)) details.open = false; });
+      }
+      el.hidden = false;
+    }
+
     setMode("auto");
     collectionsReady = loadCollections();
     applyUrl();
+    loadAccount();
   </script>
 </body>
 </html>
