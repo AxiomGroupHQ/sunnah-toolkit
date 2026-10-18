@@ -1322,7 +1322,7 @@ INDEX_HTML = r"""<!doctype html>
       } catch (_) { return; }
       if (!me.enabled) return;
       if (!me.user) {
-        el.innerHTML = '<a class="link-btn" id="sign-in" href="/auth/login">Sign in</a>';
+        el.innerHTML = '<a class="link-btn" id="sign-in" href="/auth/login">Sign in / Sign up</a>';
         $("sign-in").addEventListener("click", (e) => {
           e.preventDefault();
           location.href = "/auth/login?return_to=" + encodeURIComponent(location.href);
