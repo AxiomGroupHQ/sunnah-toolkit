@@ -437,7 +437,7 @@ INDEX_HTML = r"""<!doctype html>
     <footer>
       <p>Hadith text and grades from <a href="https://sunnah.com" target="_blank" rel="noopener">sunnah.com</a>. Results are ordered by grade, then relevance.<br>
       Press <kbd>/</kbd> to search. For rulings, consult a qualified scholar.<br>
-      Searches are stored anonymously to improve results.</p>
+      Searches are stored anonymously to improve results. <a href="/privacy">Privacy</a></p>
     </footer>
   </main>
 

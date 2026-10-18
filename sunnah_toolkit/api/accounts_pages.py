@@ -67,6 +67,11 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-so
 .row { display: flex; justify-content: space-between; gap: 1rem; font-size: 0.92rem; padding: 0.4rem 0;
   border-bottom: 1px solid var(--border); }
 .row span:first-child { color: var(--muted); }
+main.wide { max-width: 640px; }
+.policy h2 { font-size: 1.02rem; margin: 1.3rem 0 0.3rem; }
+.policy p, .policy li { font-size: 0.94rem; }
+.policy p { margin: 0.4rem 0; }
+.policy ul { margin: 0.4rem 0; padding-left: 1.2rem; }
 footer { margin-top: 2rem; text-align: center; color: var(--faint); font-size: 0.8rem; }
 footer a { color: var(--muted); }
 """
@@ -77,7 +82,10 @@ _LOGO = ('<svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="6
          'stroke-width="3.5"/></svg>')
 
 
-def _page(title: str, body: str, status: int = 200) -> HTMLResponse:
+_FOOTER = 'Signing in is optional. Searching works without an account. <a href="/privacy">Privacy</a>'
+
+
+def _page(title: str, body: str, status: int = 200, footer: str = _FOOTER, wide: bool = False) -> HTMLResponse:
     html = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -89,12 +97,12 @@ def _page(title: str, body: str, status: int = 200) -> HTMLResponse:
   <style>{_CSS}</style>
 </head>
 <body>
-  <main>
+  <main{' class="wide"' if wide else ''}>
     <a class="brand" href="/">{_LOGO}Sunnah Semantic Search</a>
     <div class="card">
 {body}
     </div>
-    <footer>Signing in is optional. Searching works without an account.</footer>
+    <footer>{footer}</footer>
   </main>
 </body>
 </html>"""
@@ -261,3 +269,59 @@ def reset_email(link: str) -> str:
 def already_registered_email(login_link: str, forgot_link: str) -> str:
     return ("Someone tried to create an account with this email address, but you already have one.\n\n"
             f"Sign in: {login_link}\nForgot your password? {forgot_link}" + _SIGNOFF)
+
+
+# ── Privacy policy (GET /privacy, registered in api/app.py) ────────────────────
+
+PRIVACY_UPDATED = "2026-10-18"
+
+
+def privacy() -> HTMLResponse:
+    """Covers searchthehadith.fyi and adhan.searchthehadith.fyi. Keep it in step with
+    core/querylog.py, core/users.py and my-adhan's assistant/querylog.py."""
+    r = _page("Privacy", f"""
+      <div class="policy">
+      <h1>Privacy</h1>
+      <p class="lead">For searchthehadith.fyi and adhan.searchthehadith.fyi. Last updated {PRIVACY_UPDATED}.</p>
+
+      <h2>Accounts are optional</h2>
+      <p>Both sites work fully without signing in. If you sign in with Google we store your
+      email address, your name and your Google account ID. If you use email sign-in we store
+      your email address, the name you give, and a one-way hash of your password (never the
+      password itself). Signing in sets a cookie scoped to .searchthehadith.fyi so one sign-in
+      covers both sites; it holds a session id and your account id, email and name, and is
+      removed when you sign out. Emailed sign-in links are single-use and expire.</p>
+
+      <h2>Search queries and adhan questions</h2>
+      <p>To improve results we log what is searched on searchthehadith.fyi and the questions
+      asked in the adhan clock's chat. Each entry holds the text, the time, the search options
+      or matched answer, the results returned, how long it took, a random id your browser tab
+      makes up (so searches from one visit can be grouped) and the country Cloudflare reports.
+      It does not hold your account, your IP address or your browser details. These logs stay
+      on our server.</p>
+
+      <h2>Server logs</h2>
+      <p>Like most web servers, ours keeps access logs of IP addresses and the addresses of
+      pages requested, used to run the service and to deal with abuse.</p>
+
+      <h2>Other services</h2>
+      <ul>
+        <li>Cloudflare sits in front of both sites as a proxy and CDN, and sees every request.
+        It may set its own security cookies.</li>
+        <li>The search page loads its Arabic font from Google Fonts.</li>
+        <li>The adhan clock loads its page libraries from jsDelivr. To work out your prayer
+        times it uses your browser's location if you allow it, otherwise asks ipapi.co for an
+        approximate location, and looks up place names with OpenStreetMap's Nominatim.</li>
+        <li>Your browser keeps your settings (for example the adhan calculation method) in its
+        own local storage. They are not sent to us.</li>
+      </ul>
+      <p>There are no ads and no analytics or tracking scripts, and we do not sell or share
+      your data.</p>
+
+      <h2>Deleting your data, questions</h2>
+      <p>Email <a href="mailto:hn.najeeb@gmail.com">hn.najeeb@gmail.com</a> to have your
+      account deleted or to ask anything about this page.</p>
+      </div>
+""", footer='<a href="/">Back to search</a>', wide=True)
+    r.headers["Cache-Control"] = "public, max-age=3600"
+    return r

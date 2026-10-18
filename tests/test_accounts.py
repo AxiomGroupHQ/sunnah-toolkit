@@ -466,3 +466,19 @@ def test_cookie_format_is_stable():
     assert session_cookie.sign(payload, "shared-test-secret") == SHARED_VECTOR
     assert session_cookie.verify(SHARED_VECTOR, "shared-test-secret") == payload
     assert session_cookie.verify(SHARED_VECTOR, "shared-test-secret", purpose="oauth") is None
+
+
+# ── privacy policy ─────────────────────────────────────────────────────────────
+
+def test_privacy_page_is_public_and_cacheable(monkeypatch):
+    monkeypatch.delenv("AUTH_SECRET", raising=False)  # served whether or not sign-in is on
+    r = new_client().get("/privacy")
+    assert r.status_code == 200 and r.headers["cache-control"] == "public, max-age=3600"
+    assert "hn.najeeb@gmail.com" in r.text and "Last updated 2026-10-18" in r.text
+    assert "adhan.searchthehadith.fyi" in r.text
+
+
+def test_privacy_is_linked(client):
+    from sunnah_toolkit.api.ui import INDEX_HTML
+    assert 'href="/privacy"' in INDEX_HTML
+    assert 'href="/privacy"' in client.get("/auth/login").text
